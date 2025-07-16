@@ -1,0 +1,389 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Production-grade app infra with ALB, autoscaling, HTTPS, backups & monitoring
+
+Parameters:
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: SSH key pair for all EC2 instances
+  CertificateArn:
+    Type: String
+    Description: ACM cert ARN for HTTPS (must match your domain)
+  DomainName:
+    Type: String
+    Description: Domain name for HTTPS (e.g. app.example.com)
+
+Mappings:
+  Region2AMI:
+    us-east-1:
+      AMI: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Resources:
+  # VPC & Networking (public + private subnets + NAT)
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs]
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [0, !GetAZs]
+
+  EIPNat:
+    Type: AWS::EC2::EIP
+    Properties: { Domain: vpc }
+
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt EIPNat.AllocationId
+      SubnetId: !Ref PublicSubnet1
+
+  RouteTablePublic:
+    Type: AWS::EC2::RouteTable
+    Properties: { VpcId: !Ref VPC }
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTablePublic
+      GatewayId: !Ref InternetGateway
+      DestinationCidrBlock: 0.0.0.0/0
+
+  PublicSubnetRoute:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref RouteTablePublic
+
+  RouteTablePrivate:
+    Type: AWS::EC2::RouteTable
+    Properties: { VpcId: !Ref VPC }
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTablePrivate
+      NatGatewayId: !Ref NATGateway
+      DestinationCidrBlock: 0.0.0.0/0
+
+  PrivateSubnetRoute:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref RouteTablePrivate
+
+  # Security Groups
+  SSHSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SSH access
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  PublicSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Public HTTP+SSH
+      VpcId: !Ref VPC
+      SecurityGroupIngress: *[
+        { IpProtocol: tcp, FromPort: 22, ToPort: 22, SourceSecurityGroupId: !Ref SSHSG },
+        { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0 },
+        { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0 }
+      ]
+
+  PrivateSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Internal SSH only
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !Ref PublicSG
+
+  AppSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: App communication
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref PublicSG
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !Ref PublicSG
+
+  DbSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: MariaDB
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref PrivateSG
+
+  RedisSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Redis
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          SourceSecurityGroupId: !Ref PrivateSG
+
+  OSSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: OpenSearch
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !Ref PrivateSG
+
+  # IAM Roles & Instance Profile
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties: { Roles: [!Ref InstanceRole] }
+
+  # S3 Bucket
+  AppBucket:
+    Type: AWS::S3::Bucket
+
+  # Redis
+  RedisSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      Description: Private for Redis
+      SubnetIds: [!Ref PrivateSubnet1]
+
+  RedisCluster:
+    Type: AWS::ElastiCache::CacheCluster
+    Properties:
+      Engine: redis
+      CacheNodeType: cache.t3.micro
+      NumCacheNodes: 1
+      VpcSecurityGroupIds: [!Ref RedisSG]
+      CacheSubnetGroupName: !Ref RedisSubnetGroup
+
+  # OpenSearch
+  OpenSearchDomain:
+    Type: AWS::Elasticsearch::Domain
+    Properties:
+      DomainName: app-search
+      ElasticsearchVersion: "7.10"
+      ElasticsearchClusterConfig:
+        InstanceType: t3.small.elasticsearch
+        InstanceCount: 1
+      VPCOptions:
+        SecurityGroupIds: [!Ref OSSG]
+        SubnetIds: [!Ref PrivateSubnet1]
+      EBSOptions: { EBSEnabled: true, VolumeSize: 10 }
+
+  # DB Volume
+  DBVolume:
+    Type: AWS::EC2::Volume
+    Properties:
+      Size: 20
+      AvailabilityZone: !GetAtt PrivateSubnet1.AvailabilityZone
+
+  # ALB & HTTPS Setup
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      SecurityGroups: [!Ref PublicSG]
+      Subnets: [!Ref PublicSubnet1]
+
+  HTTPSListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates: [{ CertificateArn: !Ref CertificateArn }]
+      DefaultActions: [{ Type: forward, TargetGroupArn: !Ref FrontendTG }]
+
+  FrontendTG:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref VPC
+      TargetType: instance
+      HealthCheckPath: /
+
+  BackendTG:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref VPC
+      TargetType: instance
+      HealthCheckPath: /health
+
+  # AutoScaling Groups
+  FrontendLaunch:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: !FindInMap [Region2AMI, !Ref "AWS::Region", AMI]
+      InstanceType: t3.micro
+      SecurityGroups: [!Ref PublicSG, !Ref SSHSG]
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref InstanceProfile
+      UserData: !Base64 |
+        #!/bin/bash
+        yum install -y httpd awslogs
+        systemctl enable httpd awslogsd && systemctl start httpd awslogsd
+
+  FrontendASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier: [!Ref PublicSubnet1]
+      LaunchConfigurationName: !Ref FrontendLaunch
+      MinSize: 2
+      MaxSize: 4
+      TargetGroupARNs: [!Ref FrontendTG]
+
+  BackendLaunch:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: !FindInMap [Region2AMI, !Ref "AWS::Region", AMI]
+      InstanceType: t3.micro
+      SecurityGroups: [!Ref PublicSG, !Ref SSHSG]
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref InstanceProfile
+      UserData: !Base64 |
+        #!/bin/bash
+        yum install -y nodejs awslogs
+        systemctl enable awslogsd && systemctl start awslogsd
+
+  BackendASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier: [!Ref PublicSubnet1]
+      LaunchConfigurationName: !Ref BackendLaunch
+      MinSize: 2
+      MaxSize: 4
+      TargetGroupARNs: [!Ref BackendTG]
+
+  # Database instance
+  DBLaunch:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !FindInMap [Region2AMI, !Ref "AWS::Region", AMI]
+        InstanceType: t3.micro
+        SecurityGroupIds: [!Ref DbSG, !Ref SSHSG]
+        KeyName: !Ref KeyName
+        IamInstanceProfile: !Ref InstanceProfile
+        UserData:
+          Fn::Base64: |
+            #!/bin/bash
+            yum install -y mariadb-server awslogs
+            systemctl enable mariadb awslogsd
+            systemctl start mariadb awslogsd
+
+  DatabaseInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateName: !Ref DBLaunch
+      SubnetId: !Ref PrivateSubnet1
+
+  DBVolumeAttachment:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      VolumeId: !Ref DBVolume
+      InstanceId: !Ref DatabaseInstance
+      Device: /dev/sdf
+
+  # Workers
+  WorkerLaunch:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !FindInMap [Region2AMI, !Ref "AWS::Region", AMI]
+        InstanceType: t3.micro
+        SecurityGroupIds: [!Ref PrivateSG, !Ref SSHSG]
+        KeyName: !Ref KeyName
+        IamInstanceProfile: !Ref InstanceProfile
+        UserData:
+          Fn::Base64: |
+            #!/bin/bash
+            yum install -y python3 awslogs
+            systemctl enable awslogsd && systemctl start awslogsd
+
+  DbWorkerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateName: !Ref WorkerLaunch
+      SubnetId: !Ref PrivateSubnet1
+      Tags: [{ Key: Name, Value: db-worker }]
+
+  S3WorkerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateName: !Ref WorkerLaunch
+      SubnetId: !Ref PrivateSubnet1
+      Tags: [{ Key: Name, Value: s3-worker }]
+
+Outputs:
+  ALBEndpoint:
+    Description: HTTPS endpoint
+    Value: !GetAtt LoadBalancer.DNSName
+  RedisEndpoint:
+    Value: !GetAtt RedisCluster.RedisEndpoint.Address
+  OpenSearchEndpoint:
+    Value: !GetAtt OpenSearchDomain.DomainEndpoint
+  S3BucketName:
+    Value: !Ref AppBucket
+

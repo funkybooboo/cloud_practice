@@ -987,6 +987,18 @@ mypyc = ["setuptools (>=50)"]
 reports = ["lxml"]
 
 [[package]]
+name = "mypy-boto3-ec2"
+version = "1.39.5"
+description = "Type annotations for boto3 EC2 1.39.5 service generated with mypy-boto3-builder 8.11.0"
+optional = false
+python-versions = ">=3.8"
+groups = ["dev"]
+files = [
+    {file = "mypy_boto3_ec2-1.39.5-py3-none-any.whl", hash = "sha256:9f1807b8f084c962522dbe3675cc32e092d570ff7283dca987379073b01ab6a5"},
+    {file = "mypy_boto3_ec2-1.39.5.tar.gz", hash = "sha256:7650deb829dcfd0d4790def7aadb052b41c908bd88f3186dd8459d6a35b01408"},
+]
+
+[[package]]
 name = "mypy-boto3-s3"
 version = "1.39.5"
 description = "Type annotations for boto3 S3 1.39.5 service generated with mypy-boto3-builder 8.11.0"
@@ -1337,4 +1349,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12"
-content-hash = "ff1d14f76ea56872d5627661fddb8ea0b9b6c2ecbe894c3bf84daebeb703c4ad"
+content-hash = "c722c65f562a5e28fc8568cf745766ec61164d52b15ae981db516fc83b48758e"
