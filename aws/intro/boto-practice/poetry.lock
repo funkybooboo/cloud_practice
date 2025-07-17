@@ -987,6 +987,18 @@ mypyc = ["setuptools (>=50)"]
 reports = ["lxml"]
 
 [[package]]
+name = "mypy-boto3-dynamodb"
+version = "1.39.0"
+description = "Type annotations for boto3 DynamoDB 1.39.0 service generated with mypy-boto3-builder 8.11.0"
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "mypy_boto3_dynamodb-1.39.0-py3-none-any.whl", hash = "sha256:3a136f9d764fa5e1b2ff464fa9599533fd00e65affe47bd28a40d920ece707a4"},
+    {file = "mypy_boto3_dynamodb-1.39.0.tar.gz", hash = "sha256:c3bafc7b4f8d59bac9a7436c7ccfb6fe32991bc7fc88c62264eaad06ae63f8a8"},
+]
+
+[[package]]
 name = "mypy-boto3-ec2"
 version = "1.39.5"
 description = "Type annotations for boto3 EC2 1.39.5 service generated with mypy-boto3-builder 8.11.0"
@@ -996,6 +1008,42 @@ groups = ["dev"]
 files = [
     {file = "mypy_boto3_ec2-1.39.5-py3-none-any.whl", hash = "sha256:9f1807b8f084c962522dbe3675cc32e092d570ff7283dca987379073b01ab6a5"},
     {file = "mypy_boto3_ec2-1.39.5.tar.gz", hash = "sha256:7650deb829dcfd0d4790def7aadb052b41c908bd88f3186dd8459d6a35b01408"},
+]
+
+[[package]]
+name = "mypy-boto3-iam"
+version = "1.39.0"
+description = "Type annotations for boto3 IAM 1.39.0 service generated with mypy-boto3-builder 8.11.0"
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "mypy_boto3_iam-1.39.0-py3-none-any.whl", hash = "sha256:339afce6fd73b61a79c828542fc1e48295c3ebdf37fc3fbc79a90d737f5e0f98"},
+    {file = "mypy_boto3_iam-1.39.0.tar.gz", hash = "sha256:6c2e3ec653222eb65993a80de8cc1f5c9e76fc15a66ad1537431cee241b1b15d"},
+]
+
+[[package]]
+name = "mypy-boto3-lambda"
+version = "1.39.0"
+description = "Type annotations for boto3 Lambda 1.39.0 service generated with mypy-boto3-builder 8.11.0"
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "mypy_boto3_lambda-1.39.0-py3-none-any.whl", hash = "sha256:d7da3c06f7dc60f5fa9e018a8ea1276aa958f83ffd50a3009687e23589a6d365"},
+    {file = "mypy_boto3_lambda-1.39.0.tar.gz", hash = "sha256:643a0c650427e849429530d9b570e6d573de7274984193f182033ccbfca55d0c"},
+]
+
+[[package]]
+name = "mypy-boto3-rds"
+version = "1.39.1"
+description = "Type annotations for boto3 RDS 1.39.1 service generated with mypy-boto3-builder 8.11.0"
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "mypy_boto3_rds-1.39.1-py3-none-any.whl", hash = "sha256:5bc0bedd45b7d3e4a1aa8fe01d8b4837f46da4f87b4afabca8a165b4886e611b"},
+    {file = "mypy_boto3_rds-1.39.1.tar.gz", hash = "sha256:6b95bb34f3f13e5c4e9029470828a4706845304370df773221622ee9d5d00033"},
 ]
 
 [[package]]
@@ -1349,4 +1397,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12"
-content-hash = "c722c65f562a5e28fc8568cf745766ec61164d52b15ae981db516fc83b48758e"
+content-hash = "2fe0dcffc760a5f162b31335bf19b01d82d93ca04c512687c715696b12f9c3f4"
